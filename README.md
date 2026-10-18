@@ -179,6 +179,26 @@ Elements carry `data-testid` attributes for automated tests:
 
 `GET /healthz` answers `200 ok`.
 
+## Testing
+
+The unit tests in `test/` run the OAuth and refresh logic and the routes
+against a fake wallet (`test/fake-wallet.ts`). They make no network calls:
+
+```sh
+pnpm test
+```
+
+End-to-end tests drive the running app in a browser against a real wallet
+environment. For them, start the app with `EXAMPLE_TEST_HOOKS=1`, which adds
+one route:
+
+- `POST /debug/expire-token` marks the current session's access token as
+  expired and answers `204`. The next page view refreshes the token. This lets
+  a test check refresh, and the `reconnect-required` state after the user
+  disconnects the app in the wallet, without waiting 15 minutes.
+
+Without `EXAMPLE_TEST_HOOKS=1` the route is not registered and answers `404`.
+
 ## Development
 
 ```sh
@@ -187,8 +207,9 @@ pnpm check    # lint, format check, typecheck, unit tests
 pnpm format   # fix formatting
 ```
 
-The unit tests in `test/` run the OAuth and refresh logic and the routes
-against a fake wallet (`test/fake-wallet.ts`). They make no network calls.
-
 Node runs the TypeScript sources directly (type stripping), so there is no
 build step.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

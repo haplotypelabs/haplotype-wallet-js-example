@@ -2,6 +2,7 @@ import type { AddressInfo } from "node:net";
 import type { Server } from "node:http";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.ts";
+import type { Config } from "../src/config.ts";
 import { SessionStore } from "../src/sessions.ts";
 import { config, FakeWallet, sample } from "./fake-wallet.ts";
 
@@ -11,14 +12,16 @@ let server: Server;
 let base: string;
 let cookie = "";
 
-beforeEach(async () => {
+async function start(overrides: Partial<Config> = {}): Promise<void> {
   wallet = new FakeWallet();
   sessions = new SessionStore(config.appUrl);
-  server = createApp(config, { fetch: wallet.fetch, sessions }).listen(0);
+  server = createApp({ ...config, ...overrides }, { fetch: wallet.fetch, sessions }).listen(0);
   await new Promise((resolve) => server.once("listening", resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
   cookie = "";
-});
+}
+
+beforeEach(() => start());
 
 afterEach(() => new Promise((resolve) => server.close(resolve)));
 
@@ -148,5 +151,24 @@ describe("app", () => {
     const html = await (await browse("/")).text();
     expect(html).toContain('data-testid="connect-button"');
     expect(sessions.all().some((s) => s.tokens)).toBe(false);
+  });
+
+  it("has no test hooks unless EXAMPLE_TEST_HOOKS=1", async () => {
+    await connect();
+    const res = await browse("/debug/expire-token", "POST");
+    expect(res.status).toBe(404);
+    expect(sessions.all().find((s) => s.tokens)?.tokens?.expiresAt).toBeGreaterThan(Date.now());
+  });
+
+  it("expires the access token through the test hook, so the next view refreshes", async () => {
+    await new Promise((resolve) => server.close(resolve));
+    await start({ testHooks: true });
+    await connect();
+    const res = await browse("/debug/expire-token", "POST");
+    expect(res.status).toBe(204);
+    const html = await (await browse("/")).text();
+    expect(html).toContain('data-testid="samples-empty"');
+    expect(wallet.tokenRequests.at(-1)?.get("grant_type")).toBe("refresh_token");
+    expect(wallet.mcpTokens.at(-1)).toBe(wallet.issued[1]);
   });
 });

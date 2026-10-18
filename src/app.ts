@@ -5,6 +5,10 @@
 //   GET  /callback    back from the wallet: exchange the code for tokens
 //   POST /disconnect  forget this user's tokens
 //   GET  /healthz     liveness check
+//
+// With EXAMPLE_TEST_HOOKS=1 only:
+//   POST /debug/expire-token  mark the access token expired, so the next page
+//                             view refreshes it (for automated tests)
 import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
 import express, { type Request, type Response } from "express";
@@ -121,6 +125,15 @@ export function createApp(config: Config, options: AppOptions = {}): express.Exp
     delete session.pending;
     res.redirect(303, "/");
   });
+
+  if (config.testHooks) {
+    // Test-only. Without EXAMPLE_TEST_HOOKS=1 this route does not exist (404).
+    app.post("/debug/expire-token", (req, res) => {
+      const session = sessions.get(req, res);
+      if (session.tokens) session.tokens.expiresAt = 0;
+      res.sendStatus(204);
+    });
+  }
 
   /**
    * Call `list_samples` with a fresh access token. Refreshes first when the

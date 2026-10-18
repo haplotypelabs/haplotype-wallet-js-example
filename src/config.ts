@@ -14,6 +14,8 @@ export interface Config {
   appUrl: string;
   port: number;
   sessionSecret: string;
+  /** Registers test-only routes. Never enable in production. */
+  testHooks: boolean;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
@@ -35,5 +37,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     appUrl: (env.APP_URL || "http://localhost:8787").replace(/\/+$/, ""),
     port: Number(env.PORT || 8787),
     sessionSecret: env.SESSION_SECRET as string,
+    testHooks: env.EXAMPLE_TEST_HOOKS === "1",
   };
 }

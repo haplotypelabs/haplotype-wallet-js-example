@@ -15,6 +15,7 @@ export const config: Config = {
   appUrl: "http://localhost:8787",
   port: 8787,
   sessionSecret: "session-secret-for-tests",
+  testHooks: false,
 };
 
 type TokenReply = { status: number; body: Record<string, unknown> };
