@@ -73,7 +73,9 @@ docker run --env-file .env -p 8787:8787 wallet-js-example
 ## How it works
 
 1. **The button.** `GET /` shows the button, a link to `/connect`. The button
-   is one file, `public/connect-button.svg`. Replace it to change the design.
+   is one file, `public/connect-button.svg`: the light version from
+   https://www.haplotype.ai/developers/connect-button/, which also has the dark
+   version and the rules for using it.
 2. **Redirect to the wallet.** `GET /connect` runs OIDC discovery on
    `WALLET_ISSUER`, creates a random `state` and a PKCE verifier, stores both
    in the user's server-side session, and redirects to the wallet's
