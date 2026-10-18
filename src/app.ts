@@ -2,13 +2,16 @@
 //
 //   GET  /            home: the connect button, or what the user shared
 //   GET  /connect     redirect to Haplotype Wallet's consent screen
-//   GET  /callback    back from the wallet: exchange the code for tokens
+//                     (`?add_scope=` asks for one more scope)
+//   GET  /callback    back from the wallet: exchange the code for tokens, or
+//                     back from the wallet's account page
 //   POST /disconnect  forget this user's tokens
 //   GET  /healthz     liveness check
 //
 // With EXAMPLE_TEST_HOOKS=1 only:
 //   POST /debug/expire-token  mark the access token expired, so the next page
 //                             view refreshes it (for automated tests)
+//   POST /debug/scopes        set the scopes the next /connect asks for
 import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
 import express, { type Request, type Response } from "express";
@@ -22,7 +25,8 @@ import {
   WalletAuth,
   type WalletTokens,
 } from "./wallet-auth.ts";
-import type { Sample } from "./contract.ts";
+import { type Sample, WALLET_SCOPES } from "./contract.ts";
+import { walletErrorView } from "./wallet-errors.ts";
 import { AccessTokenRejectedError, listSamples, ToolError } from "./wallet-mcp.ts";
 
 export interface AppOptions {
@@ -78,7 +82,7 @@ export function createApp(config: Config, options: AppOptions = {}): express.Exp
             kind: "connected",
             email: session.tokens.email,
             scopes: grantedWalletScopes(session.tokens.scope),
-            walletError: err.message,
+            walletError: walletErrorView(err, config.appUrl),
           }),
         );
         return;
@@ -90,8 +94,15 @@ export function createApp(config: Config, options: AppOptions = {}): express.Exp
 
   app.get("/connect", async (req, res) => {
     const session = sessions.get(req, res);
+    // `add_scope` asks for one more wallet scope than configured, after a
+    // tool call failed with `missing_scope`. The consent screen shows again.
+    const scopes = (session.testScopes ?? config.scopes).split(/\s+/);
+    const extra = req.query.add_scope;
+    if (typeof extra === "string" && WALLET_SCOPES.some((s) => s.slug === extra)) {
+      if (!scopes.includes(extra)) scopes.push(extra);
+    }
     try {
-      const { url, pending } = await auth.startAuthorization();
+      const { url, pending } = await auth.startAuthorization(scopes.join(" "));
       session.pending = pending;
       res.redirect(url.href);
     } catch (err) {
@@ -102,6 +113,12 @@ export function createApp(config: Config, options: AppOptions = {}): express.Exp
 
   app.get("/callback", async (req, res) => {
     const session = sessions.get(req, res);
+    // No code, state or error: the user is back from the wallet's account page
+    // (see returnAddress in wallet-errors.ts), not from a connect attempt.
+    if (!["code", "state", "error"].some((key) => key in req.query)) {
+      res.redirect("/");
+      return;
+    }
     const pending = session.pending;
     delete session.pending; // A code and state are good for one try only.
     try {
@@ -131,6 +148,20 @@ export function createApp(config: Config, options: AppOptions = {}): express.Exp
     app.post("/debug/expire-token", (req, res) => {
       const session = sessions.get(req, res);
       if (session.tokens) session.tokens.expiresAt = 0;
+      res.sendStatus(204);
+    });
+
+    // Test-only. The scopes the next /connect asks for in this session, in
+    // place of WALLET_SCOPES. With fewer scopes than a tool needs, a test can
+    // reach the `missing_scope` path.
+    app.post("/debug/scopes", express.urlencoded({ extended: false }), (req, res) => {
+      const session = sessions.get(req, res);
+      const scopes: unknown = req.body?.scopes;
+      if (typeof scopes !== "string" || !scopes.trim()) {
+        res.status(400).send("scopes is required");
+        return;
+      }
+      session.testScopes = scopes.trim();
       res.sendStatus(204);
     });
   }

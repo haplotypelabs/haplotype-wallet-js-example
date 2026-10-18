@@ -100,7 +100,8 @@ The code follows the same order:
 | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/contract.ts`         | Everything that comes from the wallet's contract: production URLs, scopes and their wording, tool names, and the `list_samples` result type. Generated. |
 | `src/wallet-auth.ts`      | Authorization URL, code exchange, refresh. All the OAuth rules below are here.                                                                          |
-| `src/wallet-mcp.ts`       | One MCP tool call with the official SDK.                                                                                                                |
+| `src/wallet-mcp.ts`       | One MCP tool call with the official SDK, and the error code of a failed one.                                                                            |
+| `src/wallet-errors.ts`    | What the page shows for each error code.                                                                                                                |
 | `src/app.ts`              | The five routes.                                                                                                                                        |
 | `src/sessions.ts`         | Server-side sessions behind an httpOnly cookie.                                                                                                         |
 | `src/views.ts`, `public/` | HTML and CSS.                                                                                                                                           |
@@ -153,6 +154,25 @@ shows up 15 minutes after a working first call.
   The grant stays in the user's wallet until they remove it there. The next
   connect skips the consent screen while the grant exists.
 
+## Error codes
+
+A tool call that fails comes back with `isError: true`, a message written for
+AI assistants, and a stable code in `result._meta["ai.haplotype/error"]`. The
+app acts on the code (`src/wallet-errors.ts`), never on the message:
+
+- `trial_ended`, `subscription_ended`, `limit_reached`: "Renew your Haplotype
+  Wallet plan", linking to the wallet's `manage_url` with `return_to` set to
+  this app's callback, so the user comes back here after paying.
+- `missing_scope`: offers to connect again, asking for the scope the error
+  names (`/connect?add_scope=<scope>`).
+- A code with `retryable: true`: "try again".
+- Anything else, including a code the app does not know: the message and the
+  error reference (`ref`).
+
+The codes come from the generated `src/contract.ts` (`ERROR_CODES`). The
+partner guide lists them all:
+<https://www.haplotype.ai/developers/connect-wallet/#in-a-tool-result>.
+
 ## Keeping tokens off the browser
 
 The browser holds one cookie: a random session ID, signed with
@@ -177,7 +197,11 @@ Elements carry `data-testid` attributes for automated tests:
 | `auth-error`         | Consent denied, or another error on the way back.                   |
 | `reconnect-required` | The refresh failed (the user disconnected the app in the wallet).   |
 | `disconnect-button`  | Connected.                                                          |
-| `wallet-error`       | A tool call failed, e.g. a missing permission.                      |
+| `wallet-error`       | A tool call failed. `data-code` is the wallet's error code.         |
+| `renew-plan`         | Billing code: the link to the wallet's account page.                |
+| `reconnect-scope`    | `missing_scope`: connect again, with `data-scope` the needed scope. |
+| `retry`              | A retryable code: try again.                                        |
+| `error-ref`          | Any other code: the error reference.                                |
 
 `GET /healthz` answers `200 ok`.
 
@@ -192,14 +216,18 @@ pnpm test
 
 End-to-end tests drive the running app in a browser against a real wallet
 environment. For them, start the app with `EXAMPLE_TEST_HOOKS=1`, which adds
-one route:
+two routes:
 
 - `POST /debug/expire-token` marks the current session's access token as
   expired and answers `204`. The next page view refreshes the token. This lets
   a test check refresh, and the `reconnect-required` state after the user
   disconnects the app in the wallet, without waiting 15 minutes.
+- `POST /debug/scopes` with a form field `scopes` sets the scopes the next
+  `/connect` in this session asks for, in place of `WALLET_SCOPES`, and
+  answers `204`. With fewer scopes than `list_samples` needs, a test reaches
+  the `missing_scope` path.
 
-Without `EXAMPLE_TEST_HOOKS=1` the route is not registered and answers `404`.
+Without `EXAMPLE_TEST_HOOKS=1` the routes are not registered and answer `404`.
 
 ## Wallet contract
 

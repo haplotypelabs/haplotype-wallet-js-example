@@ -20,6 +20,8 @@ export interface Session {
   tokens?: WalletTokens;
   /** A one-time message for the next page view. */
   notice?: Notice;
+  /** Test hook only: the scopes the next /connect asks for. */
+  testScopes?: string;
 }
 
 const COOKIE = "wallet_example_session";

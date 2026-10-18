@@ -133,15 +133,100 @@ describe("app", () => {
     expect(sessions.all().some((s) => s.tokens)).toBe(false);
   });
 
-  it("shows a tool error, such as a missing permission, without failing the page", async () => {
-    await connect();
-    wallet.toolResult = {
-      content: [{ type: "text", text: "This app was not granted the samples:read permission." }],
-      isError: true,
+  describe("tool errors, by the wallet's error code", () => {
+    const failWith = (text: string, envelope: Record<string, unknown>) => {
+      wallet.toolResult = {
+        content: [{ type: "text", text }],
+        isError: true,
+        _meta: { "ai.haplotype/error": envelope },
+      };
     };
+
+    it("a billing code asks to renew the plan, with a way back", async () => {
+      await connect();
+      failWith("Your free trial has ended. ...", {
+        code: "trial_ended",
+        retryable: false,
+        manage_url: "https://www.haplotype.ai/app/account/?client_id=client_test",
+      });
+      const html = await (await browse("/")).text();
+
+      expect(html).toContain('data-code="trial_ended"');
+      expect(html).toContain("Renew your Haplotype Wallet plan");
+      const href = html.match(/href="([^"]+)" data-testid="renew-plan"/)?.[1];
+      const url = new URL((href ?? "").replaceAll("&amp;", "&"));
+      expect(url.origin + url.pathname).toBe("https://www.haplotype.ai/app/account/");
+      expect(url.searchParams.get("client_id")).toBe("client_test");
+      expect(url.searchParams.get("return_to")).toBe("http://localhost:8787/callback");
+    });
+
+    it("missing_scope offers to connect again for that scope", async () => {
+      await connect();
+      failWith("This app was not granted the samples:read permission ...", {
+        code: "missing_scope",
+        retryable: false,
+        scope: "samples:read",
+      });
+      const html = await (await browse("/")).text();
+
+      expect(html).toContain('data-code="missing_scope"');
+      expect(html).toContain(
+        'href="/connect?add_scope=samples%3Aread" data-testid="reconnect-scope" data-scope="samples:read"',
+      );
+      const start = await browse("/connect?add_scope=samples%3Aread");
+      const scope = new URL(start.headers.get("location") as string).searchParams.get("scope");
+      expect(scope).toBe("openid offline_access samples:read");
+    });
+
+    it("asks only for wallet scopes the contract knows", async () => {
+      const start = await browse("/connect?add_scope=admin%3Aall");
+      const scope = new URL(start.headers.get("location") as string).searchParams.get("scope");
+      expect(scope).toBe(config.scopes);
+    });
+
+    it("a retryable code says try again", async () => {
+      await connect();
+      failWith("Listing samples failed because a data service did not answer. (ref: 5f0c2a1e).", {
+        code: "upstream_unavailable",
+        retryable: true,
+        ref: "5f0c2a1e",
+      });
+      const html = await (await browse("/")).text();
+
+      expect(html).toContain('data-code="upstream_unavailable"');
+      expect(html).toContain('data-testid="retry"');
+    });
+
+    it("anything else shows the message and the error reference", async () => {
+      await connect();
+      failWith(
+        "Internal error in list_samples (ref: 5f0c2a1e). If this looks like a bug, tell the user ...",
+        { code: "internal_error", retryable: false, ref: "5f0c2a1e" },
+      );
+      const html = await (await browse("/")).text();
+
+      expect(html).toContain('data-code="internal_error"');
+      expect(html).toContain("Internal error in list_samples");
+      expect(html).not.toContain("tell the user");
+      expect(html).toContain('<code data-testid="error-ref">5f0c2a1e</code>');
+    });
+
+    it("a code it does not know is treated as internal_error", async () => {
+      await connect();
+      failWith("Something new.", { code: "brand_new", retryable: true });
+      const html = await (await browse("/")).text();
+      expect(html).toContain('data-code="internal_error"');
+      expect(html).not.toContain('data-testid="retry"');
+    });
+  });
+
+  it("comes back from the wallet's account page without an error", async () => {
+    await connect();
+    const back = await browse("/callback");
+    expect(back.headers.get("location")).toBe("/");
     const html = await (await browse("/")).text();
-    expect(html).toContain('data-testid="wallet-error"');
-    expect(html).toContain("samples:read permission");
+    expect(html).not.toContain('data-testid="auth-error"');
+    expect(html).toContain('data-testid="disconnect-button"');
   });
 
   it("forgets the tokens on disconnect", async () => {
@@ -170,5 +255,20 @@ describe("app", () => {
     expect(html).toContain('data-testid="samples-empty"');
     expect(wallet.tokenRequests.at(-1)?.get("grant_type")).toBe("refresh_token");
     expect(wallet.mcpTokens.at(-1)).toBe(wallet.issued[1]);
+  });
+
+  it("sets the scopes of the next connect through the test hook", async () => {
+    await new Promise((resolve) => server.close(resolve));
+    await start({ testHooks: true });
+    await browse("/");
+    const res = await fetch(`${base}/debug/scopes`, {
+      method: "POST",
+      headers: { cookie, "content-type": "application/x-www-form-urlencoded" },
+      body: "scopes=openid+offline_access+scores%3Aread",
+    });
+    expect(res.status).toBe(204);
+    const begin = await browse("/connect");
+    const scope = new URL(begin.headers.get("location") as string).searchParams.get("scope");
+    expect(scope).toBe("openid offline_access scores:read");
   });
 });

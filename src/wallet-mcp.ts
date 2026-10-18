@@ -7,13 +7,61 @@ import {
   StreamableHTTPClientTransport,
   StreamableHTTPError,
 } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { type ListSamplesResult, type Sample, TOOLS } from "./contract.ts";
+import {
+  ERROR_CODES,
+  ERROR_META_KEY,
+  type ListSamplesResult,
+  type Sample,
+  TOOLS,
+  type WalletErrorCode,
+} from "./contract.ts";
 
 /** The MCP endpoint answered 401: the access token is expired or revoked. */
 export class AccessTokenRejectedError extends Error {}
 
+/**
+ * What the wallet says about a failed tool call, in `result._meta`. Act on
+ * `code`, not on the message: the message is written for AI assistants.
+ */
+export interface WalletErrorInfo {
+  code: WalletErrorCode;
+  /** True when the same call can succeed later without changes. */
+  retryable: boolean;
+  /** Error reference. Quote it when you contact Haplotype Labs. */
+  ref?: string;
+  /** With `missing_scope`: the scope the tool needs. */
+  scope?: string;
+  /** With a billing code: where the user manages their plan. */
+  manageUrl?: string;
+}
+
 /** The tool ran and reported an error, e.g. a missing permission. */
-export class ToolError extends Error {}
+export class ToolError extends Error {
+  readonly info: WalletErrorInfo;
+  constructor(message: string, info: WalletErrorInfo) {
+    super(message);
+    this.info = info;
+  }
+}
+
+/**
+ * The error envelope of a failed call. A code this app does not know (the
+ * wallet may add some) is treated as `internal_error`, as the docs ask.
+ */
+export function errorInfo(meta: unknown): WalletErrorInfo {
+  const raw = (meta as Record<string, unknown> | undefined)?.[ERROR_META_KEY] as
+    Record<string, unknown> | undefined;
+  const code = typeof raw?.code === "string" && raw.code in ERROR_CODES ? raw.code : null;
+  const text = (key: string) => (typeof raw?.[key] === "string" ? raw[key] : undefined);
+  if (!code) return { code: "internal_error", retryable: false, ref: text("ref") };
+  return {
+    code: code as WalletErrorCode,
+    retryable: ERROR_CODES[code as WalletErrorCode].retryable,
+    ref: text("ref"),
+    scope: text("scope"),
+    manageUrl: text("manage_url"),
+  };
+}
 
 export async function listSamples(
   mcpUrl: string,
@@ -48,7 +96,7 @@ async function callTool(
         .map((part: { type?: string; text?: string }) => (part.type === "text" ? part.text : ""))
         .join(" ")
         .trim();
-      throw new ToolError(text || `${name} failed.`);
+      throw new ToolError(text || `${name} failed.`, errorInfo(result._meta));
     }
     return result.structuredContent;
   } catch (err) {

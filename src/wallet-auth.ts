@@ -60,7 +60,9 @@ export class WalletAuth {
   }
 
   /** Step 1: build the authorize URL the user's browser is sent to. */
-  async startAuthorization(): Promise<{ url: URL; pending: PendingAuthorization }> {
+  async startAuthorization(
+    scope: string = this.#settings.scopes,
+  ): Promise<{ url: URL; pending: PendingAuthorization }> {
     const config = await this.#discover();
     const pending: PendingAuthorization = {
       // `state` ties the callback to this browser session (CSRF protection).
@@ -71,7 +73,7 @@ export class WalletAuth {
     };
     const url = oidc.buildAuthorizationUrl(config, {
       redirect_uri: this.redirectUri,
-      scope: this.#settings.scopes,
+      scope,
       state: pending.state,
       code_challenge: await oidc.calculatePKCECodeChallenge(pending.codeVerifier),
       code_challenge_method: "S256",

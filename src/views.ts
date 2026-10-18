@@ -2,6 +2,7 @@
 // The `data-testid` attributes are stable hooks for automated tests.
 import type { GrantedScope } from "./scopes.ts";
 import type { Sample } from "./contract.ts";
+import type { WalletErrorView } from "./wallet-errors.ts";
 
 export type HomeView =
   | {
@@ -17,7 +18,7 @@ export type HomeView =
       scopes: GrantedScope[];
       samples?: Sample[];
       /** Set when reading samples failed for a reason other than auth. */
-      walletError?: string;
+      walletError?: WalletErrorView;
     };
 
 export function renderHome(view: HomeView): string {
@@ -74,7 +75,7 @@ function connected(view: Extract<HomeView, { kind: "connected" }>): string {
 
   let samples: string;
   if (view.walletError) {
-    samples = `<div class="notice notice-error" role="alert" data-testid="wallet-error">${esc(view.walletError)}</div>`;
+    samples = walletError(view.walletError);
   } else if (!view.samples || view.samples.length === 0) {
     samples = `<div class="empty" data-testid="samples-empty">
       <strong>No samples yet</strong>
@@ -111,6 +112,45 @@ function connected(view: Extract<HomeView, { kind: "connected" }>): string {
       <p class="muted">Disconnect makes this app forget the connection. To revoke its access,
       disconnect the app in Haplotype Wallet.</p>
     </form>`;
+}
+
+/** A failed tool call. `data-code` is the wallet's error code. */
+function walletError(error: WalletErrorView): string {
+  let body: string;
+  switch (error.kind) {
+    case "billing":
+      body = `<strong>Renew your Haplotype Wallet plan</strong>
+        <p>${esc(error.message)}</p>
+        ${
+          error.renewUrl
+            ? `<p><a href="${esc(error.renewUrl)}" data-testid="renew-plan">Manage your plan in Haplotype Wallet</a></p>`
+            : ""
+        }`;
+      break;
+    case "missing-scope":
+      body = `<strong>This app needs one more permission</strong>
+        <p>To show this, the app needs you to allow: ${esc(error.description)}
+        <code>${esc(error.scope)}</code>.</p>
+        <p><a href="${esc(error.reconnectUrl)}" data-testid="reconnect-scope" data-scope="${esc(error.scope)}">Connect again and allow it</a></p>`;
+      break;
+    case "retry":
+      body = `<strong>Haplotype Wallet did not answer</strong>
+        <p>Try again in a moment.</p>
+        <p><a href="/" data-testid="retry">Try again</a></p>`;
+      break;
+    case "other":
+      body = `<strong>Haplotype Wallet returned an error</strong>
+        <p>${esc(error.message)}</p>
+        ${
+          error.ref
+            ? `<p class="muted">Reference: <code data-testid="error-ref">${esc(error.ref)}</code>. Quote it if you contact Haplotype Labs.</p>`
+            : ""
+        }`;
+      break;
+  }
+  return `<div class="notice notice-error" role="alert" data-testid="wallet-error" data-code="${esc(error.code)}">
+      ${body}
+    </div>`;
 }
 
 function layout(body: string): string {
