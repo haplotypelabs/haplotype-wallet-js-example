@@ -1,0 +1,118 @@
+name: Update wallet contract
+
+# Fetches the Connect contract Haplotype Wallet publishes, regenerates
+# src/contract.ts, runs the checks, and opens or updates one PR from the
+# `contract-update` branch when something changed. No change, no PR.
+#
+# The PR is opened with the default GITHUB_TOKEN. GitHub starts no other
+# workflows for events that token causes, so ci.yml does not run on that PR.
+# That is why the checks run here, before the PR, and the PR links this run.
+
+on:
+  # Sent by Haplotype Wallet's release workflow when the contract changed.
+  # client_payload: { release, url, sha256 }
+  repository_dispatch:
+    types: [wallet-contract-updated]
+  # Fallback for releases that send no dispatch.
+  schedule:
+    - cron: "23 6 * * *"
+  workflow_dispatch:
+    inputs:
+      contract_url:
+        description: URL of connect-contract.json
+        required: false
+        default: https://www.haplotype.ai/developers/connect-contract.json
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-contract
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - name: Fetch the contract
+        id: fetch
+        env:
+          EVENT: ${{ github.event_name }}
+          URL: ${{ github.event.client_payload.url || inputs.contract_url || 'https://www.haplotype.ai/developers/connect-contract.json' }}
+          EXPECTED_SHA256: ${{ github.event.client_payload.sha256 }}
+          RELEASE: ${{ github.event.client_payload.release }}
+        run: |
+          set -euo pipefail
+          echo "Fetching $URL"
+          tmp="$(mktemp)"
+          if ! curl -fsSL --retry 3 --max-time 30 -o "$tmp" "$URL"; then
+            if [ "$EVENT" = schedule ]; then
+              # Not an error worth a failed run: the next daily run tries again.
+              echo "::notice::Could not fetch $URL. Skipping this scheduled run."
+              echo "fetched=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::error::Could not fetch $URL."
+            exit 1
+          fi
+          sha256="$(sha256sum "$tmp" | cut -d' ' -f1)"
+          if [ "$EVENT" = repository_dispatch ] && [ "$sha256" != "$EXPECTED_SHA256" ]; then
+            echo "::error::$URL has sha256 $sha256, but the dispatch for $RELEASE says $EXPECTED_SHA256."
+            exit 1
+          fi
+          mv "$tmp" contract/connect-contract.json
+          echo "Fetched sha256 $sha256"
+          echo "fetched=true" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "sha256=$sha256" >> "$GITHUB_OUTPUT"
+
+      - uses: pnpm/action-setup@v6
+        if: steps.fetch.outputs.fetched == 'true'
+      - uses: actions/setup-node@v7
+        if: steps.fetch.outputs.fetched == 'true'
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - if: steps.fetch.outputs.fetched == 'true'
+        run: pnpm install --frozen-lockfile
+
+      - name: Regenerate src/contract.ts
+        id: generate
+        if: steps.fetch.outputs.fetched == 'true'
+        run: |
+          pnpm contract:generate
+          if git diff --quiet -- contract src/contract.ts; then
+            echo "The contract has not changed. Nothing to do."
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            git diff --stat -- contract src/contract.ts
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Lint, typecheck and test
+        id: checks
+        if: steps.generate.outputs.changed == 'true'
+        run: pnpm check
+
+      # Runs when the checks fail too, so the PR shows what broke. The job still fails.
+      - name: Open or update the PR
+        if: ${{ !cancelled() && steps.generate.outputs.changed == 'true' }}
+        uses: peter-evans/create-pull-request@v8
+        with:
+          branch: contract-update
+          delete-branch: true
+          add-paths: |
+            contract/connect-contract.json
+            src/contract.ts
+          commit-message: Update the wallet contract
+          title: Update the wallet contract
+          body: |
+            Regenerated `src/contract.ts` from the Connect contract at ${{ steps.fetch.outputs.url }}.
+
+            - sha256: `${{ steps.fetch.outputs.sha256 }}`
+            - Wallet release: ${{ github.event.client_payload.release || 'not given' }}
+            - Lint, typecheck and tests: **${{ steps.checks.outcome }}** in [this run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+
+            CI does not run on this PR by itself, because a workflow opened it. The checks above ran on these exact changes.

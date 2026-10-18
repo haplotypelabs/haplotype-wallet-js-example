@@ -94,14 +94,14 @@ docker run --env-file .env -p 8787:8787 wallet-js-example
 
 The code follows the same order:
 
-| File                      | What it does                                                                                                                                             |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `src/contract.ts`         | Everything that comes from the wallet's contract: environment URLs, scopes and their wording, tool names, and the `list_samples` result type. Data only. |
-| `src/wallet-auth.ts`      | Authorization URL, code exchange, refresh. All the OAuth rules below are here.                                                                           |
-| `src/wallet-mcp.ts`       | One MCP tool call with the official SDK.                                                                                                                 |
-| `src/app.ts`              | The five routes.                                                                                                                                         |
-| `src/sessions.ts`         | Server-side sessions behind an httpOnly cookie.                                                                                                          |
-| `src/views.ts`, `public/` | HTML and CSS.                                                                                                                                            |
+| File                      | What it does                                                                                                                                            |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/contract.ts`         | Everything that comes from the wallet's contract: production URLs, scopes and their wording, tool names, and the `list_samples` result type. Generated. |
+| `src/wallet-auth.ts`      | Authorization URL, code exchange, refresh. All the OAuth rules below are here.                                                                          |
+| `src/wallet-mcp.ts`       | One MCP tool call with the official SDK.                                                                                                                |
+| `src/app.ts`              | The five routes.                                                                                                                                        |
+| `src/sessions.ts`         | Server-side sessions behind an httpOnly cookie.                                                                                                         |
+| `src/views.ts`, `public/` | HTML and CSS.                                                                                                                                           |
 
 ## The `resource` trap
 
@@ -198,6 +198,30 @@ one route:
   disconnects the app in the wallet, without waiting 15 minutes.
 
 Without `EXAMPLE_TEST_HOOKS=1` the route is not registered and answers `404`.
+
+## Wallet contract
+
+`src/contract.ts` is generated. Do not edit it. Its source is
+`contract/connect-contract.json`, a copy of the contract Haplotype Wallet
+publishes at <https://www.haplotype.ai/developers/connect-contract.json>:
+endpoints, scopes with their consent wording, and tool schemas.
+`scripts/generate-contract.ts` turns it into the module, with result types for
+the tools this app calls (`APP_TOOLS` in the script).
+
+To regenerate after changing the JSON or the script:
+
+```sh
+pnpm contract:generate
+```
+
+`pnpm lint` (and so CI) fails when `src/contract.ts` does not match the JSON.
+
+Updates arrive as pull requests. The `Update wallet contract` workflow fetches
+the published contract, regenerates the module, runs lint, typecheck and tests,
+and opens or updates a PR from the `contract-update` branch if anything
+changed. It runs when Haplotype Wallet releases a contract change, daily as a
+fallback, and by hand (`gh workflow run update-contract.yml`, optionally with
+`-f contract_url=<url>`).
 
 ## Development
 
