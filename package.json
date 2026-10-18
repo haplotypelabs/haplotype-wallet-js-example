@@ -3,6 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "Connect Haplotype Wallet from a Node.js server: OAuth authorization code flow, then MCP tool calls.",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=22.18"
