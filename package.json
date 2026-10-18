@@ -12,10 +12,12 @@
     "start": "node --env-file-if-exists=.env src/server.ts",
     "dev": "node --env-file-if-exists=.env --watch src/server.ts",
     "test": "vitest run",
-    "lint": "eslint .",
+    "lint": "eslint . && pnpm contract:check",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "typecheck": "tsc --noEmit",
+    "contract:generate": "node scripts/generate-contract.ts",
+    "contract:check": "node scripts/generate-contract.ts --check",
     "check": "pnpm lint && pnpm format:check && pnpm typecheck && pnpm test"
   },
   "dependencies": {
@@ -30,6 +32,7 @@
     "@types/express": "^5.0.6",
     "@types/node": "^24.19.2",
     "eslint": "^10.13.0",
+    "json-schema-to-typescript": "^16.0.0",
     "prettier": "^3.9.10",
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.71.2",

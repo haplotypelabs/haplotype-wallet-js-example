@@ -1,6 +1,6 @@
 // All settings come from environment variables. `pnpm start` loads `.env` if it
 // exists (see .env.example). Defaults point at the production wallet.
-import { WALLET_ENVIRONMENTS } from "./contract.ts";
+import { WALLET_MCP, WALLET_OAUTH } from "./contract.ts";
 
 export interface Config {
   /** AuthKit issuer. OIDC discovery runs against it. */
@@ -29,8 +29,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   }
 
   return {
-    walletIssuer: new URL(env.WALLET_ISSUER || WALLET_ENVIRONMENTS.production.issuer),
-    walletMcpUrl: env.WALLET_MCP_URL || WALLET_ENVIRONMENTS.production.mcpUrl,
+    walletIssuer: new URL(env.WALLET_ISSUER || WALLET_OAUTH.issuer),
+    walletMcpUrl: env.WALLET_MCP_URL || WALLET_MCP.url,
     clientId: env.WALLET_CLIENT_ID as string,
     clientSecret: env.WALLET_CLIENT_SECRET as string,
     scopes: env.WALLET_SCOPES || "openid offline_access samples:read",

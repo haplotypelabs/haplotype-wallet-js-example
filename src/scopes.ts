@@ -1,4 +1,7 @@
-import { OIDC_SCOPES, WALLET_SCOPES } from "./contract.ts";
+import { WALLET_SCOPES } from "./contract.ts";
+
+/** Standard OpenID Connect scopes. They concern sign-in, not wallet data. */
+export const OIDC_SCOPES: readonly string[] = ["openid", "profile", "email", "offline_access"];
 
 export interface GrantedScope {
   scope: string;
@@ -13,5 +16,8 @@ export function grantedWalletScopes(scope: string): GrantedScope[] {
   return scope
     .split(/\s+/)
     .filter((s) => s && !OIDC_SCOPES.includes(s))
-    .map((s) => ({ scope: s, description: WALLET_SCOPES[s] ?? s }));
+    .map((s) => ({
+      scope: s,
+      description: WALLET_SCOPES.find((w) => w.slug === s)?.description ?? s,
+    }));
 }
