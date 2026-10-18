@@ -7,6 +7,10 @@ name: Update wallet contract
 # The PR is opened with the default GITHUB_TOKEN. GitHub starts no other
 # workflows for events that token causes, so ci.yml does not run on that PR.
 # That is why the checks run here, before the PR, and the PR links this run.
+# That token needs "Allow GitHub Actions to create and approve pull requests"
+# in the organization and repository settings. Without it, set the optional
+# CONTRACT_PR_TOKEN secret (a GitHub App or fine-grained token with Contents
+# and Pull requests: write) and the PR is opened with that instead.
 
 on:
   # Sent by Haplotype Wallet's release workflow when the contract changed.
@@ -101,6 +105,7 @@ jobs:
         if: ${{ !cancelled() && steps.generate.outputs.changed == 'true' }}
         uses: peter-evans/create-pull-request@v8
         with:
+          token: ${{ secrets.CONTRACT_PR_TOKEN || github.token }}
           branch: contract-update
           delete-branch: true
           add-paths: |
@@ -115,4 +120,4 @@ jobs:
             - Wallet release: ${{ github.event.client_payload.release || 'not given' }}
             - Lint, typecheck and tests: **${{ steps.checks.outcome }}** in [this run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
 
-            CI does not run on this PR by itself, because a workflow opened it. The checks above ran on these exact changes.
+            When a workflow opens a PR with its default token, CI does not run on it. The checks above ran on these exact changes.
